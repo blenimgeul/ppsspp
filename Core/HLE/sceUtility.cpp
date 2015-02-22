@@ -40,6 +40,7 @@
 #include "Core/Dialog/PSPGamedataInstallDialog.h"
 #include "Core/Dialog/PSPNetconfDialog.h"
 #include "Core/Dialog/PSPScreenshotDialog.h"
+#include "Core/HLE/sceKernelMemory.h"
 
 #define PSP_AV_MODULE_AVCODEC     0
 #define PSP_AV_MODULE_SASCORE     1
@@ -54,9 +55,10 @@ const int SCE_ERROR_MODULE_BAD_ID = 0x80111101;
 const int SCE_ERROR_MODULE_ALREADY_LOADED = 0x80111102;
 const int SCE_ERROR_MODULE_NOT_LOADED = 0x80111103;
 const int SCE_ERROR_AV_MODULE_BAD_ID = 0x80110F01;
-const u32 PSP_MODULE_NET_HTTP = 261;
-const u32 PSP_MODULE_NET_HTTPSTORAGE = 264;
+const u32 PSP_MODULE_NET_HTTP = 0x0105;
+const u32 PSP_MODULE_NET_HTTPSTORAGE = 0x0108;
 int oldStatus = 100; //random value
+u32 ATRAC3PLUS_position = 0;
 
 enum UtilityDialogType {
 	UTILITY_DIALOG_NONE,
@@ -219,6 +221,14 @@ static u32 sceUtilityLoadModule(u32 module)
 		ERROR_LOG(SCEUTILITY, "sceUtilityLoadModule: Library not found");
 		return SCE_KERNEL_ERROR_LIBRARY_NOTFOUND;
 	}
+	//Allocate ATRAC3PLUS module
+	//Required for GTA Chinese Patch
+	if (module == 0x0302) {
+		char name[64];
+		snprintf(name, sizeof(name), "UtilityModule/%x", module);
+		u32 size = 0x00008000;
+		ATRAC3PLUS_position = userMemory.Alloc(size, false, name);
+	}
 	// TODO: Each module has its own timing, technically, but this is a low-end.
 	// Note: Some modules have dependencies, but they still resched.
 
@@ -244,9 +254,10 @@ static u32 sceUtilityUnloadModule(u32 module)
 		WARN_LOG(SCEUTILITY, "sceUtilityUnloadModule(%i): not yet loaded", module);
 		return SCE_ERROR_MODULE_NOT_LOADED;
 	}
-	currentlyLoadedModules.erase(module);
-
 	INFO_LOG(SCEUTILITY, "sceUtilityUnloadModule(%i)", module);
+	currentlyLoadedModules.erase(module);
+	if (module == 0x0302 && ATRAC3PLUS_position > 0)//PSP_MODULE_AV_ATRAC3PLUS
+		userMemory.Free(ATRAC3PLUS_position);
 	// TODO: Each module has its own timing, technically, but this is a low-end.
 	// Note: If not loaded, it should not reschedule actually...
 	if (module == 0x3FF)
