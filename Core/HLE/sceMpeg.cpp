@@ -1371,6 +1371,11 @@ static int sceMpegRingbufferAvailableSize(u32 ringbufferAddr)
 		return ERROR_MPEG_NOT_YET_INIT;
 	}
 
+	if (ringbuffer->packetsRead + ringbuffer->packetsWritten > ringbuffer->packetsAvail) {
+		ERROR_LOG(ME, "sceMpegRingbufferAvailableSize(%08x): invalid packets", ringbufferAddr);
+		return 0;
+	}
+
 	ctx->mpegRingbufferAddr = ringbufferAddr;
 	hleEatCycles(2020);
 	hleReSchedule("mpeg ringbuffer avail");
@@ -1438,9 +1443,7 @@ static u32 sceMpegRingbufferPut(u32 ringbufferAddr, u32 numPackets, u32 availabl
 	}
 
 	// Execute callback function as a direct MipsCall, no blocking here so no messing around with wait states etc
-	if (ringbuffer->callback_addr != 0) {
-		DEBUG_LOG(ME, "sceMpegRingbufferPut(%08x, %i, %i)", ringbufferAddr, numPackets, available);
-
+	if (ringbuffer->callback_addr != 0) {		
 		PostPutAction *action = (PostPutAction *)__KernelCreateAction(actionPostPut);
 		action->setRingAddr(ringbufferAddr);
 		// TODO: Should call this multiple times until we get numPackets.
@@ -1449,6 +1452,12 @@ static u32 sceMpegRingbufferPut(u32 ringbufferAddr, u32 numPackets, u32 availabl
 		u32 packetsThisRound = std::min(numPackets, (u32)ringbuffer->packets);
 		u32 args[3] = {(u32)ringbuffer->data, packetsThisRound, (u32)ringbuffer->callback_args};
 		__KernelDirectMipsCall(ringbuffer->callback_addr, action, args, 3, false);
+		if (ringbuffer->packetsRead + ringbuffer->packetsWritten > ringbuffer->packetsAvail) {
+			ERROR_LOG(ME, "sceMpegRingbufferPut(%08x, %i, %i) invalid packets", ringbufferAddr, numPackets, available);
+			return ERROR_MPEG_INVALID_VALUE;
+		}
+		DEBUG_LOG(ME, "sceMpegRingbufferPut(%08x, %i, %i)", ringbufferAddr, numPackets, available);
+
 	} else {
 		ERROR_LOG_REPORT(ME, "sceMpegRingbufferPut: callback_addr zero");
 	}
